@@ -1,0 +1,409 @@
+{
+  "updatedAt": "2026-04-07T19:14:10.000Z",
+  "createdAt": "2026-04-05T10:42:57.199Z",
+  "id": "EYrd5rqi07I6eVFQ",
+  "name": "agendawpp-sales-followup-cron",
+  "description": null,
+  "active": false,
+  "isArchived": false,
+  "nodes": [
+    {
+      "id": "cron-01",
+      "name": "Cron Trigger",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        200,
+        300
+      ],
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "minutes",
+              "minutesInterval": 15
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "query-01",
+      "name": "Buscar Leads Pendientes",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        440,
+        300
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "nU9kH5ztVr0hmqhU",
+          "name": "AgendaWpp-SalesAgent"
+        }
+      },
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT l.id as lead_id, l.phone, l.name, l.niche, l.funnel_stage, l.user_id,\n  COALESCE((SELECT COUNT(*) FROM followups WHERE lead_id = l.id), 0) as followup_count,\n  l.next_followup_at,\n  l.updated_at\nFROM leads l\nWHERE l.next_followup_at <= NOW()\n  AND l.next_followup_at IS NOT NULL\n  AND l.funnel_stage NOT IN ('closed', 'lost', 'call_scheduled')\n  AND (SELECT COUNT(*) FROM followups WHERE lead_id = l.id) < 5\nORDER BY l.next_followup_at ASC\nLIMIT 10;",
+        "options": {}
+      }
+    },
+    {
+      "id": "loop-01",
+      "name": "Loop Over Items",
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [
+        680,
+        300
+      ],
+      "parameters": {
+        "batchSize": 1,
+        "options": {}
+      }
+    },
+    {
+      "id": "code-01",
+      "name": "Determinar Acción",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        920,
+        300
+      ],
+      "parameters": {
+        "jsCode": "const lead = $input.first().json;\nconst stage = lead.funnel_stage;\nconst niche = lead.niche || 'generico';\nconst nombre = lead.name || '';\nconst followupCount = lead.followup_count || 0;\n\n// Mapa de lenguaje por nicho\nconst lang = {\n  barbero: { cliente: 'tus clientes', negocio: 'tu barbería', servicio: 'un corte' },\n  doctor: { cliente: 'tus pacientes', negocio: 'tu consultorio', servicio: 'una consulta' },\n  generico: { cliente: 'tus clientes', negocio: 'tu negocio', servicio: 'una cita' }\n};\nconst l = lang[niche] || lang.generico;\n\nlet mensaje = '';\nlet newStage = null;\nlet nextFollowupMinutes = null;\n\nswitch(stage) {\n  case 'instructions_sent':\n    // 30 min sin completar demo\n    mensaje = nombre \n      ? `Hey ${nombre}! Solo quiero confirmar, ya pudiste escribir @bloom para probar el sistema?\\n\\nSi tienes alguna duda me dices \\ud83d\\ude09`\n      : `Hey! Solo quiero confirmar, ya pudiste escribir @bloom para probar el sistema?\\n\\nSi tienes alguna duda me dices \\ud83d\\ude09`;\n    nextFollowupMinutes = 60 * 24; // Siguiente en 24h si no responde\n    break;\n\n  case 'demo_completed':\n    // Auto-avanzar a reminders_received después de ~24h\n    // (el cron avanazará la etapa automáticamente)\n    newStage = 'reminders_received';\n    // No enviamos mensaje aqui, se enviará en reminders_received\n    break;\n\n  case 'reminders_received':\n    // Enviar video del dashboard\n    mensaje = `Ya viviste la experiencia completa:\\n\\u2705 Agendaste en menos de un minuto\\n\\u2705 Recibiste recordatorios autom\\u00e1ticos\\n\\nTodo eso pasa sin que t\\u00fa hagas nada\\n\\nAhora te muestro c\\u00f3mo se ve de TU lado \\u2014 c\\u00f3mo t\\u00fa ver\\u00edas las citas y c\\u00f3mo configurar todo:\\n\\n[VIDEO_URL_PLACEHOLDER]\\n\\nSi te interesa activarlo, podemos hacer una videollamada r\\u00e1pida de 15 min con Enrique para dejarlo listo. Tengo algunos espacios esta semana\\n\\nQu\\u00e9 dices? \\ud83d\\udc47`;\n    newStage = 'video_sent';\n    nextFollowupMinutes = 60 * 48; // Follow-up en 48h\n    break;\n\n  case 'video_sent':\n    if (followupCount <= 1) {\n      // Primer follow-up: 48h\n      mensaje = `Qu\\u00e9 te pareci\\u00f3 el video? Si tienes alguna duda te puedo explicar r\\u00e1pido\\n\\nSi quieres, podemos hacer una videollamada de 15 min para dejarlo configurado \\ud83d\\ude09`;\n      nextFollowupMinutes = 60 * 72; // Siguiente en 72h más\n    } else {\n      // \\u00daltimo follow-up\n      mensaje = `Oye, solo para que sepas: hay una prueba gratis de 7 d\\u00edas, sin tarjeta\\n\\nSi en alg\\u00fan momento quieres probarlo, escr\\u00edbeme y en 10 minutos lo dejamos listo\\n\\nMucho \\u00e9xito! \\ud83d\\ude4c`;\n      // No más follow-ups\n      nextFollowupMinutes = null;\n    }\n    break;\n\n  default:\n    // No hacer nada para etapas no contempladas\n    break;\n}\n\nreturn [{ json: {\n  ...lead,\n  mensaje,\n  newStage,\n  nextFollowupMinutes,\n  skip: !mensaje && !newStage\n} }];"
+      }
+    },
+    {
+      "id": "if-skip",
+      "name": "Tiene Acción?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1160,
+        300
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "version": 2,
+            "caseSensitive": true,
+            "typeValidation": "strict",
+            "leftValue": "",
+            "rightValue": ""
+          },
+          "combinator": "and",
+          "conditions": [
+            {
+              "id": "cond-01",
+              "leftValue": "={{ $json.skip }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "notEqual"
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "if-stage",
+      "name": "Avanzar Etapa?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1400,
+        200
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "version": 2,
+            "caseSensitive": true,
+            "typeValidation": "strict",
+            "leftValue": "",
+            "rightValue": ""
+          },
+          "combinator": "and",
+          "conditions": [
+            {
+              "id": "cond-02",
+              "leftValue": "={{ $json.newStage }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "isNotEmpty"
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "pg-advance",
+      "name": "Avanzar Etapa DB",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        1640,
+        100
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "nU9kH5ztVr0hmqhU",
+          "name": "AgendaWpp-SalesAgent"
+        }
+      },
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT * FROM advance_funnel_stage({{ $json.lead_id }}::INT, '{{ $json.newStage }}', 'cron');",
+        "options": {}
+      }
+    },
+    {
+      "id": "if-msg",
+      "name": "Tiene Mensaje?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1640,
+        350
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "version": 2,
+            "caseSensitive": true,
+            "typeValidation": "strict",
+            "leftValue": "",
+            "rightValue": ""
+          },
+          "combinator": "and",
+          "conditions": [
+            {
+              "id": "cond-03",
+              "leftValue": "={{ $json.mensaje }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "isNotEmpty"
+              }
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "http-send",
+      "name": "Enviar WhatsApp",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1880,
+        250
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "=https://app.aivachat.co/api/contacts/{{ $json.user_id }}/send/text",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-ACCESS-TOKEN",
+              "value": "2551568.BeQYQps8w1wKlrvveQ9kpavuRUh6lGcs2DojiByel8WCX"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "options": {
+          "timeout": 10000
+        },
+        "specifyBody": "json",
+        "jsonBody": "={\"text\": {{ JSON.stringify($json.mensaje) }} }"
+      },
+      "continueOnFail": true
+    },
+    {
+      "id": "pg-followup",
+      "name": "Registrar Follow-up",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        2120,
+        250
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "nU9kH5ztVr0hmqhU",
+          "name": "AgendaWpp-SalesAgent"
+        }
+      },
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO followups (lead_id, funnel_stage, message_sent, triggered_by)\nVALUES ({{ $('Determinar Acción').first().json.lead_id }}::INT, '{{ $('Determinar Acción').first().json.funnel_stage }}', $TAG${{ $('Determinar Acción').first().json.mensaje }}$TAG$, 'cron');\n\nUPDATE leads SET next_followup_at = {{ $('Determinar Acción').first().json.nextFollowupMinutes ? \"NOW() + INTERVAL '\" + $('Determinar Acción').first().json.nextFollowupMinutes + \" minutes'\" : 'NULL' }}\nWHERE id = {{ $('Determinar Acción').first().json.lead_id }}::INT;",
+        "options": {}
+      }
+    },
+    {
+      "id": "pg-conv",
+      "name": "Guardar en Conversations",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        2120,
+        450
+      ],
+      "credentials": {
+        "postgres": {
+          "id": "nU9kH5ztVr0hmqhU",
+          "name": "AgendaWpp-SalesAgent"
+        }
+      },
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO conversations (lead_id, phone, role, message)\nVALUES ({{ $('Determinar Acción').first().json.lead_id }}::INT, '{{ $('Determinar Acción').first().json.phone }}', 'assistant', $TAG$[CRON FOLLOWUP] {{ $('Determinar Acción').first().json.mensaje }}$TAG$);",
+        "options": {}
+      }
+    }
+  ],
+  "connections": {
+    "Cron Trigger": {
+      "main": [
+        [
+          {
+            "node": "Buscar Leads Pendientes",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Buscar Leads Pendientes": {
+      "main": [
+        [
+          {
+            "node": "Loop Over Items",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Loop Over Items": {
+      "main": [
+        [],
+        [
+          {
+            "node": "Determinar Acción",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Determinar Acción": {
+      "main": [
+        [
+          {
+            "node": "Tiene Acción?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Tiene Acción?": {
+      "main": [
+        [
+          {
+            "node": "Avanzar Etapa?",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Tiene Mensaje?",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Loop Over Items",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Avanzar Etapa?": {
+      "main": [
+        [
+          {
+            "node": "Avanzar Etapa DB",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        []
+      ]
+    },
+    "Tiene Mensaje?": {
+      "main": [
+        [
+          {
+            "node": "Enviar WhatsApp",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Loop Over Items",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Enviar WhatsApp": {
+      "main": [
+        [
+          {
+            "node": "Registrar Follow-up",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Guardar en Conversations",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Registrar Follow-up": {
+      "main": [
+        [
+          {
+            "node": "Loop Over Items",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "timezone": "America/Chihuahua",
+    "callerPolicy": "workflowsFromSameOwner",
+    "availableInMCP": false
+  },
+  "tags": []
+}

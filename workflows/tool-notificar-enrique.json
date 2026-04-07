@@ -1,0 +1,136 @@
+{
+  "updatedAt": "2026-04-07T19:14:20.000Z",
+  "createdAt": "2026-04-05T10:41:55.147Z",
+  "id": "lMqo4Yt8x6rKwZSz",
+  "name": "Tool notificarEnrique - AgendaWpp",
+  "description": null,
+  "active": false,
+  "isArchived": false,
+  "nodes": [
+    {
+      "id": "trigger-01",
+      "name": "When Executed by Another Workflow",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.1,
+      "position": [
+        200,
+        300
+      ],
+      "parameters": {
+        "inputSource": "passthrough"
+      }
+    },
+    {
+      "id": "code-01",
+      "name": "Formatear Notificación",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        440,
+        300
+      ],
+      "parameters": {
+        "jsCode": "const data = $input.first().json;\nconst nombre = data.nombreCompleto || 'No disponible';\nconst whatsApp = data.whatsApp || '';\nconst tipo = data.tipoNotificacion || 'general';\nconst notificacion = data.notificacion || '';\n\nconst emojis = {\n  new_lead: '🆕',\n  demo_completed: '✅',\n  call_scheduled: '📅',\n  human_requested: '🙋',\n  objection: '⚠️'\n};\n\nconst labels = {\n  new_lead: 'Nuevo Lead',\n  demo_completed: 'Demo Completado',\n  call_scheduled: 'Videollamada Agendada',\n  human_requested: 'Solicita Hablar con Humano',\n  objection: 'Objeción'\n};\n\nconst emoji = emojis[tipo] || '📌';\nconst label = labels[tipo] || tipo;\n\nconst mensaje = `${emoji} *AgendaFlow - ${label}*\\n\\nNombre: ${nombre}\\nWhatsApp: ${whatsApp}\\n\\n${notificacion}`;\n\nreturn [{ json: { mensaje, tipo, whatsApp } }];"
+      }
+    },
+    {
+      "id": "http-01",
+      "name": "Notificar Enrique por WhatsApp",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        680,
+        300
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "https://app.aivachat.co/api/contacts/526145942235/send/text",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-ACCESS-TOKEN",
+              "value": "2551568.BeQYQps8w1wKlrvveQ9kpavuRUh6lGcs2DojiByel8WCX"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "options": {
+          "timeout": 10000
+        },
+        "specifyBody": "json",
+        "jsonBody": "={\"text\": {{ JSON.stringify($json.mensaje) }} }"
+      },
+      "continueOnFail": true
+    },
+    {
+      "id": "response-01",
+      "name": "Respuesta",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        920,
+        300
+      ],
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "r-01",
+              "name": "result",
+              "value": "Notificación enviada a Enrique",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      }
+    }
+  ],
+  "connections": {
+    "When Executed by Another Workflow": {
+      "main": [
+        [
+          {
+            "node": "Formatear Notificación",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Formatear Notificación": {
+      "main": [
+        [
+          {
+            "node": "Notificar Enrique por WhatsApp",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Notificar Enrique por WhatsApp": {
+      "main": [
+        [
+          {
+            "node": "Respuesta",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "timezone": "America/Chihuahua",
+    "callerPolicy": "workflowsFromSameOwner",
+    "availableInMCP": false
+  },
+  "tags": []
+}

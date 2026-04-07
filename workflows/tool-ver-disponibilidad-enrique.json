@@ -1,0 +1,131 @@
+{
+  "updatedAt": "2026-04-07T19:14:30.000Z",
+  "createdAt": "2026-04-05T10:41:22.745Z",
+  "id": "aDSYY0cJVyIlo7yG",
+  "name": "Tool verDisponibilidad - Enrique",
+  "description": null,
+  "active": false,
+  "isArchived": false,
+  "nodes": [
+    {
+      "id": "trigger-01",
+      "name": "When Executed by Another Workflow",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.1,
+      "position": [
+        -256,
+        -176
+      ],
+      "parameters": {
+        "inputSource": "passthrough"
+      }
+    },
+    {
+      "id": "edit-01",
+      "name": "Edit Fields",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        -32,
+        -176
+      ],
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "sd-01",
+              "name": "=startDate",
+              "value": "={{ $json.start_date.trim() }}",
+              "type": "string"
+            },
+            {
+              "id": "ed-01",
+              "name": "=endDate",
+              "value": "={{ $json.end_date.trim() }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "gcal-01",
+      "name": "Google Calendar",
+      "type": "n8n-nodes-base.googleCalendar",
+      "typeVersion": 1.3,
+      "position": [
+        208,
+        -376
+      ],
+      "credentials": {
+        "googleCalendarOAuth2Api": {
+          "id": "x4AXRtHdTSIrJcpW",
+          "name": "N8N-Google-Apps"
+        }
+      },
+      "parameters": {
+        "resource": "event",
+        "operation": "getAll",
+        "calendar": {
+          "mode": "id",
+          "value": "c_f85eb89af457e6e260e8b4f4c6efaab6bb1689cdb8224b4ca0bc9686b24bdd0f@group.calendar.google.com"
+        },
+        "returnAll": true,
+        "options": {
+          "timeMin": "={{ $json.startDate.substring(0, 10) }}T00:00:00-06:00",
+          "timeMax": "={{ $json.startDate.substring(0, 10) }}T23:59:59-06:00"
+        }
+      }
+    },
+    {
+      "id": "code-01",
+      "name": "Code",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        448,
+        -176
+      ],
+      "parameters": {
+        "jsCode": "// VALIDAR DISPONIBILIDAD + PROPONER HUECOS (Chihuahua)\n// Videollamadas de 15 minutos para AgendaFlow\n\nconst gcalItems = (() => { try { return $('Google Calendar').all(); } catch(e) { return []; } })();\nconst eventos = gcalItems.map(item => ({\n  start: item.json.start?.dateTime || item.json.start?.date || '',\n  end: item.json.end?.dateTime || item.json.end?.date || '',\n  summary: item.json.summary || ''\n}));\n\nconst edit = $('Edit Fields').first().json;\nconst fechaConsultaRaw = edit.startDate || edit.start_date;\nconst endDateRaw = edit.endDate || edit.end_date;\n\nif (!fechaConsultaRaw) throw new Error('Fecha de consulta no proporcionada.');\n\nconst OFFSET = '-06:00';\nconst SLOT_DURATION = 15 * 60 * 1000; // 15 minutos\nconst HALF_HR = 30 * 60 * 1000;\nconst MARGEN_MIN = 60 * 60 * 1000; // 1 hora de anticipación mínima\nconst AHORA = Date.now();\nconst LIMITE_MIN = AHORA + MARGEN_MIN;\n\nconst JORNADAS_POR_DIA = {\n  0: [],\n  1: [{ start: '09:00', end: '18:00' }],\n  2: [{ start: '09:00', end: '18:00' }],\n  3: [{ start: '09:00', end: '18:00' }],\n  4: [{ start: '09:00', end: '18:00' }],\n  5: [{ start: '09:00', end: '18:00' }],\n  6: [{ start: '09:00', end: '14:00' }],\n};\n\nconst isoToTS = iso => new Date(iso).getTime();\n\nconst tsToHora = ts => new Date(ts).toLocaleTimeString('es-MX', {\n  hour: '2-digit', minute: '2-digit', hour12: true, timeZone: 'America/Chihuahua'\n});\n\nconst tsToFechaHumana = ts => new Intl.DateTimeFormat('es-MX', {\n  weekday: 'long', day: '2-digit', month: 'long', year: 'numeric',\n  hour: '2-digit', minute: '2-digit', hour12: true,\n  timeZone: 'America/Chihuahua'\n}).format(new Date(ts));\n\nconst tsToDiaSemana = ts => new Intl.DateTimeFormat('es-MX', {\n  weekday: 'long', timeZone: 'America/Chihuahua'\n}).format(new Date(ts)).toLowerCase();\n\nconst tsToDiaNum = ts => {\n  const parts = new Intl.DateTimeFormat('en-US', {\n    weekday: 'short', timeZone: 'America/Chihuahua'\n  }).formatToParts(new Date(ts));\n  const dayMap = { Sun: 0, Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6 };\n  return dayMap[parts.find(p => p.type === 'weekday').value];\n};\n\nconst diaBase = new Date(isoToTS(fechaConsultaRaw));\ndiaBase.setHours(0, 0, 0, 0);\n\nfunction mismoDia(e) {\n  const d = new Date(isoToTS(e.start));\n  return d.getFullYear() === diaBase.getFullYear() &&\n         d.getMonth() === diaBase.getMonth() &&\n         d.getDate() === diaBase.getDate();\n}\n\nconst ocupados = eventos.filter(mismoDia)\n  .map(e => ({ s: isoToTS(e.start), e: isoToTS(e.end) }))\n  .sort((a, b) => a.s - b.s);\n\nfor (let i = 1; i < ocupados.length; i++) {\n  if (ocupados[i].s <= ocupados[i - 1].e) {\n    ocupados[i - 1].e = Math.max(ocupados[i - 1].e, ocupados[i].e);\n    ocupados.splice(i--, 1);\n  }\n}\n\nfunction horaToTS(hhmm) {\n  const [h, m] = hhmm.split(':').map(Number);\n  const Y = diaBase.getFullYear(), M = `${diaBase.getMonth()+1}`.padStart(2,'0'), D = `${diaBase.getDate()}`.padStart(2,'0');\n  return isoToTS(`${Y}-${M}-${D}T${`${h}`.padStart(2,'0')}:${`${m}`.padStart(2,'0')}:00${OFFSET}`);\n}\n\nconst solicitadaTS = isoToTS(fechaConsultaRaw);\nconst diaNum = tsToDiaNum(solicitadaTS);\nconst JORNADAS = JORNADAS_POR_DIA[diaNum] || [];\n\nif (JORNADAS.length === 0) {\n  return [{\n    fecha_consulta: fechaConsultaRaw,\n    dia_semana: tsToDiaSemana(solicitadaTS),\n    fecha_humana: tsToFechaHumana(solicitadaTS),\n    disponible: false,\n    motivo: 'No hay atención este día.',\n    sugerencias: []\n  }];\n}\n\nlet preferenciaIniTS = null;\nlet preferenciaFinTS = null;\nif (fechaConsultaRaw && endDateRaw) {\n  const ini = isoToTS(fechaConsultaRaw);\n  const fin = isoToTS(endDateRaw);\n  const mismoDiaRango = String(fechaConsultaRaw).slice(0, 10) === String(endDateRaw).slice(0, 10);\n  if (mismoDiaRango && fin > ini) {\n    preferenciaIniTS = ini;\n    preferenciaFinTS = fin - SLOT_DURATION;\n  }\n}\n\nconst libres = [];\nfor (const win of JORNADAS) {\n  const winIni = horaToTS(win.start);\n  const winFin = horaToTS(win.end) - SLOT_DURATION;\n  for (let cursor = winIni; cursor <= winFin; cursor += HALF_HR) {\n    const slotEnd = cursor + SLOT_DURATION;\n    if (cursor < LIMITE_MIN) continue;\n    const solapa = ocupados.some(b => cursor < b.e && slotEnd > b.s);\n    if (!solapa) libres.push({ s: cursor, e: slotEnd });\n  }\n}\n\nlibres.sort((a, b) => a.s - b.s);\nconst libresFiltrados = (preferenciaIniTS !== null && preferenciaFinTS !== null)\n  ? libres.filter(l => l.s >= preferenciaIniTS && l.s <= preferenciaFinTS)\n  : libres;\nconst baseSugerencias = (libresFiltrados.length > 0) ? libresFiltrados : libres;\nconst sugerencias = baseSugerencias.slice(0, 5).map(l => ({\n  inicio: tsToHora(l.s),\n  fin: tsToHora(l.e)\n}));\n\nconst muyCerca = solicitadaTS < LIMITE_MIN;\nconst choqueOcupado = ocupados.some(b => solicitadaTS < b.e && (solicitadaTS + SLOT_DURATION) > b.s);\nconst disponible = !muyCerca && !choqueOcupado;\n\nreturn [{\n  fecha_consulta: fechaConsultaRaw,\n  dia_semana: tsToDiaSemana(solicitadaTS),\n  fecha_humana: tsToFechaHumana(solicitadaTS),\n  disponible,\n  ...(muyCerca ? { motivo: 'El horario solicitado es muy próximo. Se requiere al menos 1 hora de anticipación.' } : {}),\n  horarios_ocupados: eventos.filter(mismoDia).map(e => ({ inicio: e.start, fin: e.end })),\n  sugerencias\n}];"
+      }
+    }
+  ],
+  "connections": {
+    "When Executed by Another Workflow": {
+      "main": [
+        [
+          {
+            "node": "Edit Fields",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Edit Fields": {
+      "main": [
+        [
+          {
+            "node": "Google Calendar",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Code",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "timezone": "America/Chihuahua",
+    "callerPolicy": "workflowsFromSameOwner",
+    "availableInMCP": false
+  },
+  "tags": []
+}

@@ -1,0 +1,202 @@
+{
+  "updatedAt": "2026-04-07T19:14:25.000Z",
+  "createdAt": "2026-04-05T10:41:38.296Z",
+  "id": "sy8MbVyspl5vfGIR",
+  "name": "Tool crearEvento - Enrique",
+  "description": null,
+  "active": false,
+  "isArchived": false,
+  "nodes": [
+    {
+      "id": "trigger-01",
+      "name": "When Executed by Another Workflow",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.1,
+      "position": [
+        200,
+        300
+      ],
+      "parameters": {
+        "inputSource": "passthrough"
+      }
+    },
+    {
+      "id": "userdata-01",
+      "name": "userData",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        440,
+        300
+      ],
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "ud-01",
+              "name": "start_date",
+              "value": "={{ $json.start_date.trim() }}",
+              "type": "string"
+            },
+            {
+              "id": "ud-02",
+              "name": "end_date",
+              "value": "={{ $json.end_date.trim() }}",
+              "type": "string"
+            },
+            {
+              "id": "ud-03",
+              "name": "nombre",
+              "value": "={{ $json.nombre.trim() }}",
+              "type": "string"
+            },
+            {
+              "id": "ud-04",
+              "name": "telefono",
+              "value": "={{ $json.telefono }}",
+              "type": "string"
+            },
+            {
+              "id": "ud-05",
+              "name": "userID",
+              "value": "={{ $json.userID }}",
+              "type": "string"
+            },
+            {
+              "id": "ud-06",
+              "name": "niche",
+              "value": "={{ $json.niche || '' }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "code-01",
+      "name": "Preparar Evento",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        680,
+        300
+      ],
+      "parameters": {
+        "jsCode": "const data = $input.first().json;\nconst nombre = data.nombre || 'Lead AgendaFlow';\nconst telefono = data.telefono || '';\nconst niche = data.niche || '';\nconst nicheLabel = niche === 'barbero' ? 'Barbero' : niche === 'doctor' ? 'Doctor' : 'Lead';\n\nreturn [{\n  json: {\n    ...data,\n    summary: `Videollamada AgendaFlow - ${nombre} (${nicheLabel})`,\n    description: `Videollamada de configuración AgendaFlow\\n\\nNombre: ${nombre}\\nTeléfono: ${telefono}\\nNicho: ${nicheLabel}\\n\\nObjetivo: Configurar AgendaFlow y cerrar venta.`\n  }\n}];"
+      }
+    },
+    {
+      "id": "gcal-01",
+      "name": "Google Calendar",
+      "type": "n8n-nodes-base.googleCalendar",
+      "typeVersion": 1.3,
+      "position": [
+        920,
+        300
+      ],
+      "credentials": {
+        "googleCalendarOAuth2Api": {
+          "id": "x4AXRtHdTSIrJcpW",
+          "name": "N8N-Google-Apps"
+        }
+      },
+      "parameters": {
+        "resource": "event",
+        "operation": "create",
+        "calendar": {
+          "mode": "id",
+          "value": "c_f85eb89af457e6e260e8b4f4c6efaab6bb1689cdb8224b4ca0bc9686b24bdd0f@group.calendar.google.com"
+        },
+        "start": "={{ $json.start_date }}",
+        "end": "={{ $json.end_date }}",
+        "additionalFields": {
+          "summary": "={{ $json.summary }}",
+          "description": "={{ $json.description }}"
+        }
+      }
+    },
+    {
+      "id": "response-01",
+      "name": "Respuesta",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        1160,
+        300
+      ],
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "r-01",
+              "name": "result",
+              "value": "Videollamada creada exitosamente",
+              "type": "string"
+            },
+            {
+              "id": "r-02",
+              "name": "event_id",
+              "value": "={{ $json.id }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      }
+    }
+  ],
+  "connections": {
+    "When Executed by Another Workflow": {
+      "main": [
+        [
+          {
+            "node": "userData",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "userData": {
+      "main": [
+        [
+          {
+            "node": "Preparar Evento",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Preparar Evento": {
+      "main": [
+        [
+          {
+            "node": "Google Calendar",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Google Calendar": {
+      "main": [
+        [
+          {
+            "node": "Respuesta",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "timezone": "America/Chihuahua",
+    "callerPolicy": "workflowsFromSameOwner",
+    "availableInMCP": false
+  },
+  "tags": []
+}

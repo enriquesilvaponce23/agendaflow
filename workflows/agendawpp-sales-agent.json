@@ -1,0 +1,1193 @@
+{
+  "updatedAt": "2026-04-07T18:47:31.320Z",
+  "createdAt": "2026-04-05T08:36:35.003Z",
+  "id": "yzb4JoR8MOvlFcGV",
+  "name": "agendawpp-sales-agent",
+  "description": null,
+  "active": true,
+  "isArchived": false,
+  "nodes": [
+    {
+      "parameters": {
+        "model": "gpt-4.1-mini",
+        "options": {}
+      },
+      "id": "636012a9-5c8b-4c4e-b978-e5cd6fd67c13",
+      "name": "OpenAI Chat Model",
+      "type": "@n8n/n8n-nodes-langchain.lmChatOpenAi",
+      "position": [
+        -2288,
+        848
+      ],
+      "typeVersion": 1,
+      "credentials": {
+        "openAiApi": {
+          "id": "un726UIIJXuWIHxi",
+          "name": "Agendawpp-sales-agent"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "={{ $json.mensajeUsuario }}",
+        "hasOutputParser": true,
+        "options": {
+          "systemMessage": "={{ $('Render Prompt').item.json.content }}"
+        }
+      },
+      "id": "78b8c497-9c7a-4890-8d32-68b8ec1235ad",
+      "name": "Calendar AI Agent",
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "position": [
+        -2144,
+        592
+      ],
+      "typeVersion": 1.7
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "6ee41251-37d3-422e-89ec-3167b7c2e2ea",
+              "name": "mensajeUsuario",
+              "value": "={{ $('Preparar Mensaje').item.json.body.mensaje || \"hola\" }}",
+              "type": "string"
+            },
+            {
+              "id": "7a5dbbec-6a94-475b-847c-b89f661cc517",
+              "name": "telefono",
+              "value": "={{ $('Preparar Mensaje').item.json.body.telefono.replace(/^\\+5211/, '+521').replace(/^521/, '+521') }}",
+              "type": "string"
+            },
+            {
+              "id": "f5d79b65-8292-498e-93d9-542936949a6b",
+              "name": "userID",
+              "value": "={{ $('Preparar Mensaje').item.json.body.userID}}",
+              "type": "string"
+            },
+            {
+              "id": "7fd1d480-ee34-4fdb-ae22-b7b1c2600f78",
+              "name": "demo",
+              "value": "={{ $('Preparar Mensaje').item.json.body.demo || \"\" }}",
+              "type": "string"
+            },
+            {
+              "id": "627e3187-cfb8-4bf6-a58b-4c9b36b8b5da",
+              "name": "is_new_lead",
+              "value": "={{ $json.is_new_lead }}",
+              "type": "string"
+            },
+            {
+              "id": "a1b2c3d4-niche-field",
+              "name": "niche",
+              "value": "={{ $json.niche }}",
+              "type": "string"
+            },
+            {
+              "id": "e5f6g7h8-funnel-field",
+              "name": "funnel_stage",
+              "value": "={{ $json.funnel_stage }}",
+              "type": "string"
+            },
+            {
+              "id": "i9j0k1l2-leadid-field",
+              "name": "lead_id",
+              "value": "={{ $json.lead_id }}",
+              "type": "number"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        -3456,
+        640
+      ],
+      "id": "1a052473-9f9a-47a3-ab28-7d2a568547af",
+      "name": "Mensaje Usuario"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Nodo: \"Normalizar Teléfono\"\n// Tipo: Code node\n// Ubicación: Webhook → [Normalizar Teléfono] → Guardar en Buffer\n// \n// Corrige el \"1\" extra: +52113311386582 → +5213311386582\n// Formato correcto: +521 + 10 dígitos (13 dígitos después del +)\n\nconst body = $json.body || {};\nlet phone = String(body.telefono || \"\");\n\n// Quitar espacios\nphone = phone.trim();\n\n// Fix: +5211XXXXXXXXXX → +521XXXXXXXXXX (quitar el \"1\" extra después de 521)\nif (phone.startsWith(\"+5211\") && phone.length === 15) {\n  phone = \"+52\" + phone.slice(4); // quita el \"1\" extra\n} else if (phone.startsWith(\"5211\") && phone.length === 14) {\n  phone = \"52\" + phone.slice(3);\n}\n\nreturn [{\n  json: {\n    body: {\n      ...body,\n      telefono: phone,\n      telefonoOriginal: body.telefono,  // guardar original por si acaso\n    }\n  }\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -6048,
+        672
+      ],
+      "id": "943856eb-47d3-4abf-9477-272fa8899ae2",
+      "name": "Code1"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Code node: \"Render Prompt\" — AgendaFlow Sales Agent\n// Input: HTTP Request (GitHub raw) con $json.data (texto del prompt)\n// Output: content renderizado + campos de Mensaje Usuario\n\n// 1) Toma el texto crudo del prompt de GitHub\nconst allItems = $input.all();\nconst docRaw = allItems[0].json.data ?? allItems[0].json.content ?? \"\";\n\n// 2) Normaliza comillas curvas, NBSP, etc.\nconst normalizeFn = (s) =>\n  s\n    .replace(/[\\u201C\\u201D]/g, '\"')\n    .replace(/[\\u2018\\u2019]/g, \"'\")\n    .replace(/\\u00A0/g, \" \");\n\n// 3) Helpers de fecha/hora (locale ES y zona horaria)\nconst TZ = \"America/Chihuahua\";\nconst now = new Date();\n\nfunction formatNowFull(d = now, tz = TZ) {\n  const fmt = new Intl.DateTimeFormat(\"es-MX\", {\n    weekday: \"long\",\n    day: \"2-digit\",\n    month: \"long\",\n    year: \"numeric\",\n    hour: \"2-digit\",\n    minute: \"2-digit\",\n    second: \"2-digit\",\n    hour12: false,\n    timeZone: tz,\n  });\n  return fmt.format(d).replace(/^\\p{L}/u, (m) => m.toLowerCase());\n}\n\nfunction formatISO(d = now, tz = TZ) {\n  const parts = new Intl.DateTimeFormat(\"en-CA\", {\n    year: \"numeric\", month: \"2-digit\", day: \"2-digit\",\n    hour: \"2-digit\", minute: \"2-digit\", second: \"2-digit\",\n    hour12: false, timeZone: tz,\n  }).formatToParts(d).reduce((acc, p) => (acc[p.type]=p.value, acc), {});\n  return `${parts.year}-${parts.month}-${parts.day}T${parts.hour}:${parts.minute}:${parts.second}`;\n}\n\n// 4) Variables de contexto desde Mensaje Usuario\nconst Mensaje = $('Mensaje Usuario').first().json;\nconst telefono       = Mensaje?.telefono ?? \"\";\nconst userID         = Mensaje?.userID   ?? \"\";\nconst mensajeUsuario = Mensaje?.mensajeUsuario ?? \"\";\nconst demo           = Mensaje?.demo ?? \"\";\nconst lead_id        = Mensaje?.lead_id ?? 0;\nconst is_new_lead    = Mensaje?.is_new_lead ?? false;\nconst niche          = Mensaje?.niche ?? \"\";\nconst funnel_stage   = Mensaje?.funnel_stage ?? \"new\";\n\n// 5) Buscar contexto adicional del lead\nlet lead_name = \"\";\nlet followup_count = 0;\ntry {\n  const leadCtx = $('Buscar Lead Context').first().json;\n  lead_name = leadCtx?.name || \"\";\n  followup_count = leadCtx?.followup_count || 0;\n} catch(e) {\n  // Si no existe el nodo aún, usar defaults\n}\n\n// 6) Diccionario de reemplazo de placeholders\nconst vars = {\n  now_full: formatNowFull(),\n  now_iso: formatISO(),\n  tz: TZ,\n  telefono,\n  userID,\n  niche: niche || \"desconocido\",\n  funnel_stage: funnel_stage || \"new\",\n  lead_name: lead_name || \"No disponible\",\n  followup_count: String(followup_count),\n};\n\n// 7) Render: reemplaza {{ clave }} por el valor\nlet rendered = normalizeFn(docRaw);\n\nfor (const [key, value] of Object.entries(vars)) {\n  const re = new RegExp(`{{\\\\s*${key}\\\\s*}}`, \"g\");\n  rendered = rendered.replace(re, String(value));\n}\n\n// 8) Output\nreturn [{ json: {\n  content: rendered,\n  userID,\n  telefono,\n  lead_name,\n  mensajeUsuario,\n  demo,\n  is_new_lead,\n  niche,\n  funnel_stage,\n  lead_id\n} }];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -2368,
+        592
+      ],
+      "id": "420dc33b-05ba-4ef2-8023-6e10dc4430b3",
+      "name": "Render Prompt"
+    },
+    {
+      "parameters": {
+        "name": "verDisponibilidad",
+        "description": "Esta herramienta verifica la disponibilidad de Enrique para videollamadas de configuración de AgendaFlow. Utilízala cuando un lead quiera agendar una videollamada y necesites confirmar horarios disponibles. Busca disponibilidad en los próximos 7 días hábiles.",
+        "workflowId": {
+          "__rl": true,
+          "value": "aDSYY0cJVyIlo7yG",
+          "mode": "id"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "start_date": "={{ $fromAI('start_date', 'Hora de inicio de la cita en formato ISO 8601')     .trim()     .replace(/(\\d{2}:\\d{2}:\\d{2})(?:\\.\\d+)?Z?$/, '$1-06:00')  }}",
+            "end_date": "={{    $fromAI('end_date', 'Hora de fin de la cita en formato ISO 8601')     .trim()     .replace(/(\\d{2}:\\d{2}:\\d{2})(?:\\.\\d+)?Z?$/, '$1-06:00')  }}"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "start_date",
+              "displayName": "start_date",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string"
+            },
+            {
+              "id": "end_date",
+              "displayName": "end_date",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string"
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.toolWorkflow",
+      "typeVersion": 2,
+      "position": [
+        -1920,
+        848
+      ],
+      "id": "b7fb7620-a05d-4144-890f-e5c7de8513ab",
+      "name": "verDisponibilidad"
+    },
+    {
+      "parameters": {
+        "description": "Usa esta herramienta cuando necesites analizar la solicitud del usuario antes de decidir la acción correcta. \nUtilízala especialmente para:\n- determinar si debes llamar a verDisponibilidad,\n- analizar si el mensaje es ambiguo,\n- validar si necesitas pedir más información antes de agendar.\n\nEste pensamiento no se mostrará al usuario; solo te ayuda a razonar antes de actuar."
+      },
+      "type": "@n8n/n8n-nodes-langchain.toolThink",
+      "typeVersion": 1.1,
+      "position": [
+        -1328,
+        848
+      ],
+      "id": "89be1384-454d-4c56-b741-52ae24c7a21c",
+      "name": "Think"
+    },
+    {
+      "parameters": {
+        "name": "notificarEnrique",
+        "description": "Llama a esta herramienta para notificar a Enrique sobre eventos importantes del lead (new_lead, demo_completed, call_scheduled, human_requested, objection)",
+        "workflowId": {
+          "__rl": true,
+          "value": "lMqo4Yt8x6rKwZSz",
+          "mode": "id"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "nombreCompleto": "={{ $fromAI('nombreCompleto', 'Nombre completo del lead.').trim() }}",
+            "whatsApp": "={{ $('Render Prompt').first().json.telefono }}",
+            "tipoNotificacion": "={{ $fromAI('tipoNotificacion', 'Tipo de notificacion: new_lead | demo_completed | call_scheduled | human_requested | objection').trim() }}",
+            "notificacion": "={{ $fromAI('notificacion', 'Texto de la notificación con contexto del lead y la situación').trim() }}"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "nombreCompleto",
+              "displayName": "nombreCompleto",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string"
+            },
+            {
+              "id": "whatsApp",
+              "displayName": "whatsApp",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string"
+            },
+            {
+              "id": "tipoNotificacion",
+              "displayName": "tipoNotificacion",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string"
+            },
+            {
+              "id": "notificacion",
+              "displayName": "notificacion",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string"
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.toolWorkflow",
+      "typeVersion": 2,
+      "position": [
+        -1616,
+        848
+      ],
+      "id": "6456e59c-682c-452f-876f-e9ad0e434558",
+      "name": "notificarEnrique"
+    },
+    {
+      "parameters": {
+        "name": "crearEvento",
+        "description": "Crea una videollamada de 15 minutos en el calendario de Enrique para configurar AgendaFlow con el lead.",
+        "workflowId": {
+          "__rl": true,
+          "value": "sy8MbVyspl5vfGIR",
+          "mode": "id"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "start_date": "={{ $fromAI('start_date', 'Hora de inicio de la cita en formato ISO 8601').trim() }} ",
+            "end_date": "={{ $fromAI('end_date', 'Hora de fin de la cita en formato ISO 8601').trim() }} ",
+            "nombre": "={{ $fromAI('nombre', 'Nombre completo del lead').trim() }} ",
+            "telefono": "={{ $('Render Prompt').first().json.telefono.replace(/^(\\+5211)1/, '$1') }}",
+            "userID": "={{ $('Render Prompt').first().json.userID }}",
+            "niche": "={{ $('Render Prompt').first().json.niche }}"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "start_date",
+              "displayName": "start_date",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string"
+            },
+            {
+              "id": "end_date",
+              "displayName": "end_date",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string"
+            },
+            {
+              "id": "nombre",
+              "displayName": "nombre",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string"
+            },
+            {
+              "id": "telefono",
+              "displayName": "telefono",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string"
+            },
+            {
+              "id": "userID",
+              "displayName": "userID",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string"
+            },
+            {
+              "id": "niche",
+              "displayName": "niche",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string"
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.toolWorkflow",
+      "typeVersion": 2,
+      "position": [
+        -1760,
+        848
+      ],
+      "id": "0933b821-dea8-4e60-af57-3030c530f59c",
+      "name": "crearEvento"
+    },
+    {
+      "parameters": {
+        "amount": 12
+      },
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [
+        -5056,
+        656
+      ],
+      "id": "1c9b2e53-78b2-4714-b0a1-17a4da2bc5a1",
+      "name": "Wait",
+      "webhookId": "b52a98bd-c21e-4e09-a9fa-90930a4c484b"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "dae45df6-a812-46a1-9d5f-9f5ca8fb77be",
+              "leftValue": "={{ $json.action }}",
+              "rightValue": "process",
+              "operator": {
+                "type": "string",
+                "operation": "equals",
+                "name": "filter.operator.equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        -4576,
+        656
+      ],
+      "id": "f737260f-cab5-44ab-a369-35fdbbd87f20",
+      "name": "If"
+    },
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [
+        -4320,
+        816
+      ],
+      "id": "a3244a28-edd5-4a41-8024-ac135c6ece3f",
+      "name": "No Operation, do nothing"
+    },
+    {
+      "parameters": {
+        "jsCode": "const webhookData = $('Webhook').first().json;\nconst combinedMessage = $('Verificar y Concatenar').first().json.combined_message || webhookData.body.mensaje || \"\";\nconst messageCount = $('Verificar y Concatenar').first().json.message_count || 1;\n\n// Fix teléfono: +5211XXXXXXXXXX → +521XXXXXXXXXX\nlet phone = String(webhookData.body.telefono || \"\").trim();\nif (phone.startsWith(\"+5211\") && phone.length === 15) {\n  phone = \"+52\" + phone.slice(4);\n}\n\nreturn [{\n  json: {\n    body: {\n      ...webhookData.body,\n      telefono: phone,\n      mensaje: (combinedMessage || \"\").replace(/'/g, \"''\"),\n      mensajeOriginal: webhookData.body.mensaje,\n      mensajesAcumulados: Number(messageCount),\n    }\n  }\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -4048,
+        640
+      ],
+      "id": "d074a270-042b-42f5-b820-ffc4f2aad5b4",
+      "name": "Preparar Mensaje"
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "DELETE FROM message_buffer\nWHERE phone = '{{ $('Code1').first().json.body.telefono }}';",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        -4320,
+        496
+      ],
+      "id": "0cd4489f-3cd9-4c7a-bd52-e7352bc8bb93",
+      "name": "Limpiar Buffer",
+      "credentials": {
+        "postgres": {
+          "id": "nU9kH5ztVr0hmqhU",
+          "name": "AgendaWpp-SalesAgent"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT \n  CASE \n    WHEN EXISTS (\n      SELECT 1 FROM message_buffer \n      WHERE phone = '{{ $('Code1').first().json.body.telefono }}'\n      AND created_at > (\n        SELECT created_at FROM message_buffer \n        WHERE id = {{ $('Guardar en Buffer').first().json.id }}\n      )\n    ) THEN 'stop'\n    ELSE 'process'\n  END as action,\n  (\n    SELECT STRING_AGG(message, ' ' ORDER BY created_at ASC)\n    FROM message_buffer \n    WHERE phone = '{{ $('Code1').first().json.body.telefono }}'\n  ) as combined_message,\n  (\n    SELECT COUNT(*) \n    FROM message_buffer \n    WHERE phone = '{{ $('Code1').first().json.body.telefono }}'\n  ) as message_count;\n",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        -4848,
+        656
+      ],
+      "id": "54191a62-e931-41e2-8757-a5fda663a777",
+      "name": "Verificar y Concatenar",
+      "credentials": {
+        "postgres": {
+          "id": "nU9kH5ztVr0hmqhU",
+          "name": "AgendaWpp-SalesAgent"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO message_buffer (phone, message)\nVALUES ('{{ $json.body.telefono }}', '{{ $json.body.mensaje }}')\nRETURNING id, created_at;",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        -5280,
+        656
+      ],
+      "id": "5ad07817-e7e3-4a6f-bf13-6610c9199817",
+      "name": "Guardar en Buffer",
+      "credentials": {
+        "postgres": {
+          "id": "nU9kH5ztVr0hmqhU",
+          "name": "AgendaWpp-SalesAgent"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "WITH lead_result AS (\n  SELECT * FROM upsert_lead_agendawpp(\n    '{{ $json.body.telefono }}',\n    '{{ $json.body.mensaje }}',\n    NULL,\n    '{{ $json.body.userID }}'\n  )\n),\nprev_count AS (\n  SELECT COUNT(*) as cnt\n  FROM conversations\n  WHERE lead_id = (SELECT lead_id FROM lead_result)\n),\ninserted AS (\n  INSERT INTO conversations (lead_id, phone, role, message)\n  SELECT lead_id, '{{ $json.body.telefono }}', 'lead', '{{ $json.body.mensaje }}'\n  FROM lead_result\n  RETURNING lead_id\n)\nSELECT \n  inserted.lead_id,\n  CASE WHEN prev_count.cnt = 0 THEN true ELSE false END as is_new_lead,\n  lead_result.niche,\n  lead_result.funnel_stage\nFROM inserted, prev_count, lead_result;",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        -3744,
+        640
+      ],
+      "id": "ac20cf52-41ae-41f1-9b43-495ccc14a60e",
+      "name": "Guardar Lead y Mensaje",
+      "credentials": {
+        "postgres": {
+          "id": "nU9kH5ztVr0hmqhU",
+          "name": "AgendaWpp-SalesAgent"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "WITH lead AS (\n  SELECT id FROM leads\n  WHERE phone = '{{ $('Preparar Mensaje').first().json.body.telefono }}'\n  LIMIT 1\n)\nINSERT INTO conversations (lead_id, phone, role, message)\nSELECT id, '{{ $('Preparar Mensaje').first().json.body.telefono }}', 'assistant', $TAG${{ $('Calendar AI Agent').first().json.output }}$TAG$\nFROM lead;",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        -912,
+        176
+      ],
+      "id": "b42df695-7fc1-4af0-bc45-79e9d1293e38",
+      "name": "Guardar Respuesta",
+      "credentials": {
+        "postgres": {
+          "id": "nU9kH5ztVr0hmqhU",
+          "name": "AgendaWpp-SalesAgent"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "WITH lead AS (\n  SELECT id FROM leads\n  WHERE phone = '{{ $('Preparar Mensaje').first().json.body.telefono }}'\n  LIMIT 1\n)\nINSERT INTO conversations (lead_id, phone, role, message)\nSELECT id, '{{ $('Preparar Mensaje').first().json.body.telefono }}', 'assistant', $TAG${{ $('Calendar AI Agent').first().json.output }}$TAG$\nFROM lead;",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        -912,
+        -32
+      ],
+      "id": "e6350289-4f43-4332-b37f-e626ae4c55e1",
+      "name": "Guardar Respuesta #nr",
+      "credentials": {
+        "postgres": {
+          "id": "nU9kH5ztVr0hmqhU",
+          "name": "AgendaWpp-SalesAgent"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://app.aivachat.co/api/contacts/{{ $('Preparar Mensaje').first().json.body.userID }}/send/1775548316762",
+        "sendBody": false,
+        "options": {
+          "timeout": 10000
+        },
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-ACCESS-TOKEN",
+              "value": "2551568.BeQYQps8w1wKlrvveQ9kpavuRUh6lGcs2DojiByel8WCX"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -592,
+        -32
+      ],
+      "id": "1e67bc3f-e91a-4090-91db-b936da7a0617",
+      "name": "Desactivar Automatización",
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "sessionIdType": "customKey",
+        "sessionKey": "={{ $json.userID }}"
+      },
+      "type": "@n8n/n8n-nodes-langchain.memoryPostgresChat",
+      "typeVersion": 1.3,
+      "position": [
+        -2096,
+        848
+      ],
+      "id": "33caa5e0-b8bb-4b3c-9ec1-6225ece318c5",
+      "name": "Postgres Chat Memory",
+      "credentials": {
+        "postgres": {
+          "id": "nU9kH5ztVr0hmqhU",
+          "name": "AgendaWpp-SalesAgent"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "4efa4c39-b272-4782-bc01-43a161883030",
+              "leftValue": "={{ $json.output }}",
+              "rightValue": "#nr",
+              "operator": {
+                "type": "string",
+                "operation": "contains"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        -1600,
+        256
+      ],
+      "id": "8ce34984-b1f3-4577-8278-b40575adc9c8",
+      "name": "Filtro #nr"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Filtro Anti-Bot v1.0\n// Nodo Code para n8n — Detecta mensajes de bots/agentes virtuales para evitar loops\n// Ubicación en workflow: después de Code1 (normalización), ANTES de Guardar en Buffer\n\nconst mensaje = $json.body?.mensaje || \"\";\nconst telefono = $json.body?.telefono || \"\";\n\n// ============================================================\n// 1) LISTA NEGRA DE NÚMEROS — bots conocidos (agregar según se detecten)\n// ============================================================\nconst BLACKLIST_PHONES = new Set([\n  // Formato: número normalizado tal como lo entrega Code1\n  // Ejemplo: \"5213396900001\",  // Mega Conecta\n  // Ejemplo: \"5215551234567\",  // Telmex\n]);\n\nif (BLACKLIST_PHONES.has(telefono)) {\n  return [{\n    json: {\n      ...$json,\n      is_bot: true,\n      bot_reason: \"blacklist_phone\"\n    }\n  }];\n}\n\n// ============================================================\n// 2) PATRONES DE TEXTO — frases típicas de bots comerciales\n// ============================================================\nconst BOT_PATTERNS = [\n  // Auto-presentación de bots/asistentes virtuales\n  /soy tu asistente virtual/i,\n  /soy .{1,30} asistente virtual/i,\n  /asistente virtual de /i,\n  /soy un bot/i,\n  /soy una inteligencia artificial/i,\n  /chatbot/i,\n\n  // Menús automatizados\n  /selecciona una de las opciones/i,\n  /elige una opci[oó]n/i,\n  /escribe el n[uú]mero de la opci[oó]n/i,\n  /responde con el n[uú]mero/i,\n  /ver opciones/i,\n\n  // Auto-respuestas empresariales\n  /para una mejor experiencia/i,\n  /para brindarte .{1,30} atenci[oó]n/i,\n  /tenemos un whatsapp especial/i,\n  /te invitamos a comunicarte/i,\n  /mensaje autom[aá]tico/i,\n  /respuesta autom[aá]tica/i,\n  /este es un mensaje autom[aá]tico/i,\n  /este canal no est[aá] monitoreado/i,\n  /no responder a este mensaje/i,\n  /enviado de forma autom[aá]tica/i,\n\n  // Patrones de telecomunicaciones / servicios\n  /contratar tu paquete/i,\n  /incrementa sus velocidades/i,\n  /relacionado a tu contrato/i,\n  /soporte y todo lo relacionado/i,\n  /al contratar tu paquete/i,\n  /mejorar tu plan/i,\n  /tu saldo es/i,\n  /tu recibo est[aá] listo/i,\n\n  // Links de redireccionamiento a otro WhatsApp Business\n  /wa\\.me\\/\\d{10,}/i,\n\n  // Patrones de CRM/chatbot genéricos\n  /no pudimos entender tu mensaje/i,\n  /no entend[ií] tu respuesta/i,\n  /por favor elige una/i,\n  /te comparto las opciones/i,\n  /escribe \"hola\" para comenzar/i,\n  /escribe salir para terminar/i,\n  /sesion finalizada/i,\n  /sesi[oó]n expirada/i,\n\n  // Confirmaciones automatizadas de sistemas\n  /tu c[oó]digo de verificaci[oó]n/i,\n  /c[oó]digo de seguridad/i,\n  /tu c[oó]digo es: ?\\d/i,\n];\n\nfor (const pattern of BOT_PATTERNS) {\n  if (pattern.test(mensaje)) {\n    return [{\n      json: {\n        ...$json,\n        is_bot: true,\n        bot_reason: `pattern: ${pattern.source}`\n      }\n    }];\n  }\n}\n\n// ============================================================\n// 3) DENSIDAD DE EMOJIS + KEYWORDS — bots comerciales usan muchos emojis\n// ============================================================\nconst emojiRegex = /[\\u{1F600}-\\u{1F64F}\\u{1F300}-\\u{1F5FF}\\u{1F680}-\\u{1F6FF}\\u{1F1E0}-\\u{1F1FF}\\u{2702}-\\u{27B0}\\u{24C2}-\\u{1F251}\\u{1F900}-\\u{1F9FF}\\u{1FA00}-\\u{1FA6F}\\u{1FA70}-\\u{1FAFF}\\u{2600}-\\u{26FF}\\u{2700}-\\u{27BF}]/gu;\nconst emojis = mensaje.match(emojiRegex) || [];\nconst words = mensaje.trim().split(/\\s+/).length;\n\n// 3+ emojis Y más del 20% del mensaje son emojis Y tiene keywords de bot\nif (emojis.length >= 3 && (emojis.length / words) > 0.2) {\n  if (/opciones|selecciona|elige|asistente|bot|autom[aá]tico|paquete|contrato|plan|saldo/i.test(mensaje)) {\n    return [{\n      json: {\n        ...$json,\n        is_bot: true,\n        bot_reason: \"emoji_density_with_bot_keywords\"\n      }\n    }];\n  }\n}\n\n// ============================================================\n// 4) MENSAJES VACÍOS O SOLO MULTIMEDIA (sin texto)\n//    No filtrar como bot — reemplazar con placeholder para que el agente responda\n// ============================================================\nconst MEDIA_PLACEHOLDERS = {\n  \"\": \"[El lead envió un mensaje multimedia (imagen, video o audio). No tienes acceso al contenido multimedia.]\",\n  \"[imagen]\": \"[El lead envió una imagen. No tienes acceso al contenido multimedia.]\",\n  \"[audio]\": \"[El lead envió un audio. No tienes acceso al contenido multimedia.]\",\n  \"[video]\": \"[El lead envió un video. No tienes acceso al contenido multimedia.]\",\n  \"[sticker]\": \"[El lead envió un sticker. No tienes acceso al contenido multimedia.]\",\n};\n\nconst trimmed = mensaje.trim();\nif (trimmed in MEDIA_PLACEHOLDERS) {\n  return [{\n    json: {\n      body: {\n        ...$json.body,\n        mensaje: MEDIA_PLACEHOLDERS[trimmed],\n        mensajeOriginal: mensaje,\n      },\n      is_bot: false,\n      bot_reason: null\n    }\n  }];\n}\n\n// ============================================================\n// 5) NO ES BOT — continuar flujo normal\n// ============================================================\nreturn [{\n  json: {\n    ...$json,\n    is_bot: false,\n    bot_reason: null\n  }\n}];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -5808,
+        672
+      ],
+      "id": "7be4be03-9934-4928-a8a9-88dd1f91feed",
+      "name": "Filtro Anti-Bot"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "f723d96f-96a9-478f-8565-4e2fad5ec2b0",
+              "leftValue": "={{ $json.is_bot }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        -5568,
+        672
+      ],
+      "id": "6e603b14-c470-418e-962b-ed400be817fc",
+      "name": "If2"
+    },
+    {
+      "parameters": {
+        "url": "=https://raw.githubusercontent.com/enriquesilvaponce23/agendaflow/{{ $workflow.name.includes('[DEV]') ? 'dev' : 'main' }}/prompt/agendawpp-sales-agent.md",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "text"
+            }
+          }
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.3,
+      "position": [
+        -3024,
+        528
+      ],
+      "id": "d4f52f6e-da5e-4bb8-8902-b8b86cf059c5",
+      "name": "HTTP Request (GitHub raw)",
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "82NIwFqV6vIuCTVB",
+          "name": "GitHub - Agente Miguel"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "agendaflow-sales-agent",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        -6288,
+        672
+      ],
+      "id": "fb889318-d509-4d8a-a360-eb5b59a7620f",
+      "name": "Webhook",
+      "webhookId": "70454a3a-444b-46e7-86d7-bcd54e78985d"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://app.aivachat.co/api/contacts/{{ $('Render Prompt').first().json.userID.trim() }}/send/text",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-ACCESS-TOKEN",
+              "value": "2551568.BeQYQps8w1wKlrvveQ9kpavuRUh6lGcs2DojiByel8WCX"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "options": {},
+        "specifyBody": "json",
+        "jsonBody": "={\"text\": {{ JSON.stringify($json.output) }} }"
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        -1232,
+        432
+      ],
+      "id": "453df10f-7465-4357-97da-591dbb898c47",
+      "name": "IA Contesta",
+      "retryOnFail": true
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "test-check-001",
+              "leftValue": "={{ String($('Webhook').first().json.body.isTest) }}",
+              "rightValue": "true",
+              "operator": {
+                "type": "string",
+                "operation": "equals",
+                "name": "filter.operator.equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        -1408,
+        256
+      ],
+      "id": "2b134eb5-6792-4520-a7e0-b73d8bbae5a7",
+      "name": "Es Test?"
+    },
+    {
+      "id": "43d0a911-f381-46ad-9666-d550e830e97c",
+      "name": "Buscar Lead Context",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        -2768,
+        592
+      ],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT l.name, l.niche, l.funnel_stage,\n  COALESCE((SELECT COUNT(*) FROM followups WHERE lead_id = l.id), 0) as followup_count\nFROM leads l\nWHERE l.phone = '{{ $('Preparar Mensaje').first().json.body.telefono }}'\nLIMIT 1;",
+        "options": {}
+      },
+      "credentials": {
+        "postgres": {
+          "id": "nU9kH5ztVr0hmqhU",
+          "name": "AgendaWpp-SalesAgent"
+        }
+      }
+    },
+    {
+      "id": "7c1c110e-f19b-4d77-8dec-1fb405416c91",
+      "name": "avanzarEtapa",
+      "type": "@n8n/n8n-nodes-langchain.toolWorkflow",
+      "typeVersion": 2,
+      "position": [
+        -1888,
+        848
+      ],
+      "parameters": {
+        "name": "avanzarEtapa",
+        "description": "Avanza al lead a una nueva etapa del embudo de ventas. Llama SIEMPRE que el lead progrese. Etapas válidas: welcomed, instructions_sent, demo_completed, reminders_received, video_sent, call_scheduled, closed, lost",
+        "workflowId": {
+          "__rl": true,
+          "value": "C0VapVUQmm644IBX",
+          "mode": "id"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "lead_id": "={{ $('Render Prompt').first().json.lead_id }}",
+            "new_stage": "={{ $fromAI('new_stage', 'Nueva etapa del embudo: welcomed | instructions_sent | demo_completed | reminders_received | video_sent | call_scheduled | closed | lost').trim() }}"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "lead_id",
+              "displayName": "lead_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string"
+            },
+            {
+              "id": "new_stage",
+              "displayName": "new_stage",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string"
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        }
+      }
+    }
+  ],
+  "connections": {
+    "OpenAI Chat Model": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "Calendar AI Agent",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Calendar AI Agent": {
+      "main": [
+        [
+          {
+            "node": "Filtro #nr",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Mensaje Usuario": {
+      "main": [
+        [
+          {
+            "node": "Buscar Lead Context",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code1": {
+      "main": [
+        [
+          {
+            "node": "Filtro Anti-Bot",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Render Prompt": {
+      "main": [
+        [
+          {
+            "node": "Calendar AI Agent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "verDisponibilidad": {
+      "ai_tool": [
+        [
+          {
+            "node": "Calendar AI Agent",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Think": {
+      "ai_tool": [
+        [
+          {
+            "node": "Calendar AI Agent",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "notificarEnrique": {
+      "ai_tool": [
+        [
+          {
+            "node": "Calendar AI Agent",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "crearEvento": {
+      "ai_tool": [
+        [
+          {
+            "node": "Calendar AI Agent",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait": {
+      "main": [
+        [
+          {
+            "node": "Verificar y Concatenar",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "If": {
+      "main": [
+        [
+          {
+            "node": "Limpiar Buffer",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "No Operation, do nothing",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Preparar Mensaje": {
+      "main": [
+        [
+          {
+            "node": "Guardar Lead y Mensaje",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Limpiar Buffer": {
+      "main": [
+        [
+          {
+            "node": "Preparar Mensaje",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Verificar y Concatenar": {
+      "main": [
+        [
+          {
+            "node": "If",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Guardar en Buffer": {
+      "main": [
+        [
+          {
+            "node": "Wait",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Guardar Lead y Mensaje": {
+      "main": [
+        [
+          {
+            "node": "Mensaje Usuario",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Guardar Respuesta #nr": {
+      "main": [
+        [
+          {
+            "node": "Desactivar Automatización",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Postgres Chat Memory": {
+      "ai_memory": [
+        [
+          {
+            "node": "Calendar AI Agent",
+            "type": "ai_memory",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Filtro #nr": {
+      "main": [
+        [
+          {
+            "node": "Guardar Respuesta #nr",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Es Test?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Filtro Anti-Bot": {
+      "main": [
+        [
+          {
+            "node": "If2",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "If2": {
+      "main": [
+        [],
+        [
+          {
+            "node": "Guardar en Buffer",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "Code1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IA Contesta": {
+      "main": [
+        [
+          {
+            "node": "Guardar Respuesta",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Es Test?": {
+      "main": [
+        [
+          {
+            "node": "Guardar Respuesta",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "IA Contesta",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP Request (GitHub raw)": {
+      "main": [
+        [
+          {
+            "node": "Render Prompt",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Buscar Lead Context": {
+      "main": [
+        [
+          {
+            "node": "HTTP Request (GitHub raw)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "avanzarEtapa": {
+      "ai_tool": [
+        [
+          {
+            "node": "Calendar AI Agent",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "callerPolicy": "workflowsFromSameOwner",
+    "availableInMCP": false
+  },
+  "tags": []
+}
